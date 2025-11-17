@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SeeStar Mode - Catálogo Completo</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#0a0a0a;color:#eee;margin:0;padding:20px}
+    h1{color:#8ab4ff;text-align:center}
+    #container{max-width:1000px;margin:20px auto;background:#121212;padding:20px;border-radius:10px}
+    #skyCanvas{width:100%;height:500px;background:#000;border-radius:8px;display:block}
+    .result{white-space:pre-wrap;background:#0b0b0b;padding:12px;border-radius:8px;margin-top:12px}
+    .controls{display:flex;gap:8px;margin-top:12px}
+    input,button{padding:8px;border-radius:6px;border:1px solid #222;background:#111;color:#eee}
+    button{cursor:pointer;background:#2962ff;border:none}
+  </style>
+</head>
+<body>
+  <h1>SeeStar Mode — Catálogo local</h1>
+  <div id="container">
+    <div class="controls">
+      <input id="search" placeholder="Busca M42, NGC 7000, IC 434..." style="flex:1"/>
+      <button id="btnSearch">Buscar</button>
+      <button id="btnLoad">Forzar cargar catálogo local</button>
+    </div>
+    <canvas id="skyCanvas" width="900" height="450"></canvas>
+    <div id="info" class="result">Estado: esperando catálogo...</div>
+  </div>
+
+<script>
+let catalogo = [];
+const candidateURLs = [
+  'https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/ngc_ic.json',
+  'https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/database_files/ngc_ic.csv',
+  'catalogo_completo.json'
+];
+
+async function loadFromUrl(url){
+  try{
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('status '+r.status);
+    const txt = await r.text();
+    try{
+      const data = JSON.parse(txt);
+      return data;
+    }catch(e){
+      // try csv parse simple
+      const lines = txt.split('\\n').map(l=>l.trim()).filter(l=>l);
+      const headers = lines[0].split(',').map(h=>h.replace(/["']/g,'').trim());
+      const objs = [];
+      for(let i=1;i<lines.length;i++){
+        const cols = lines[i].split(',');
+        const obj = {};
+        headers.forEach((h,idx)=> obj[h]=cols[idx]);
+        if(obj.ra && obj.dec) objs.push({id: obj.ID||obj.NGC||obj.IC||obj.id||'', nombre: obj.Name||obj.nombre||'', ra: parseFloat(obj.ra), dec: parseFloat(obj.dec), mag: parseFloat(obj.mag||obj.mag_v||obj.V||obj.mag_v)});
+      }
+      return objs;
+    }
+  }catch(err){
+    console.warn('no cargó',url,err);
+    return null;
+  }
+}
+
+async function loadCatalog(){
+  document.getElementById('info').innerText = 'Estado: cargando catálogo desde fuentes...';
+  for(const url of candidateURLs){
+    const data = await loadFromUrl(url);
+    if(data && data.length){
+      catalogo = data;
+      document.getElementById('info').innerText = 'Estado: catálogo cargado desde: ' + url + '  (objetos: ' + catalogo.length + ')';
+      drawSky();
+      return;
+    }
+  }
+  document.getElementById('info').innerText = 'Estado: no se encontró catálogo. Sube catalogo_completo.json y pulsa "Forzar cargar catálogo local".';
+}
+
+function drawSky(){
+  const c = document.getElementById('skyCanvas');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle='#fff';
+  const n = Math.min(catalogo.length, 5000);
+  for(let i=0;i<n;i++){
+    const o = catalogo[i];
+    const ra = (o.ra || o.RA || 0);
+    const dec = (o.dec || o.DEC || 0);
+    const x = ((ra % 360) / 360) * c.width;
+    const y = c.height - ((dec + 90) / 180) * c.height;
+    const size = (o.mag && o.mag < 6) ? 3 : 1.5;
+    ctx.beginPath(); ctx.arc(x,y, size,0,Math.PI*2); ctx.fill();
+  }
+}
+
+document.getElementById('btnSearch').addEventListener('click', ()=>{
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  if(!q) return;
+  const found = catalogo.find(o => (o.id && o.id.toLowerCase().includes(q)) || (o.nombre && o.nombre.toLowerCase().includes(q)));
+  if(found) {
+    document.getElementById('info').innerText = 'Encontrado: ' + (found.id||'') + ' - ' + (found.nombre||'') + '\\nRA: ' + (found.ra||found.RA) + ' DEC: ' + (found.dec||found.DEC);
+  } else {
+    document.getElementById('info').innerText = 'No encontrado: ' + q;
+  }
+});
+
+document.getElementById('btnLoad').addEventListener('click', async ()=>{
+  const data = await loadFromUrl('catalogo_completo.json');
+  if(data){
+    catalogo = data;
+    document.getElementById('info').innerText = 'Estado: catálogo local cargado (objetos: ' + catalogo.length + ')';
+    drawSky();
+  } else {
+    document.getElementById('info').innerText = 'No se pudo cargar catalogo_completo.json local.';
+  }
+});
+
+loadCatalog();
+</script>
+</body>
+</html>
